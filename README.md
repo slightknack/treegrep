@@ -1,9 +1,11 @@
+# treegrep
+
 Prompted by @siraben, I wrote a little tool that allows one to do semantic find and replace on a file. It's nothing more than a little demo for now (and the code is a bit of a mess as I wrote it in under an hour), but I hope you'll find it interesting.
 
 Make sure to clone recursively!
 
 ```bash
-git clone https://github.com/slightknack/tree-sitter-sub --recursive
+git clone https://github.com/slightknack/treegrep --recursive
 ```
 
 Here's the output for the default example:
@@ -12,20 +14,23 @@ Here's the output for the default example:
 DONE!
 
 given the following source code:
-x = 1 + 0
+x = 1 + 2
+y = True
 
-I matched the following query:
+I searched for the following tree-sitter query:
 (binary_operator (integer) @a (integer) @b) @sub
 
-and then used the following substitution:
-7 + at_a + 1 - at_b + 7
+This returned the following branch of the AST:
+1 + 2
 
-to produce the following spliced fragment:
-7 + 1 + 1 - 0 + 7
+Using the following replacement template:
+at_b + at_a
 
-which (via @sub) corresponds to the following location in the source code:
-1 + 0
-
-using this information, I was able to reconstruct the source with the edit applied:
-x = 7 + 1 + 1 - 0 + 7
+I spliced in the captured AST patterns to produce:
+x = 2 + 1
+y = True
 ```
+
+This find-and-replace pattern swaps around the arguments to a binary addition operation.
+
+Everything is in `src/main.rs`. Happy hacking!

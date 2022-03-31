@@ -41,14 +41,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f497285884f3fcff424ffc933e56d7cbca511def0c9831a7f9b5f6153e3cc89b"
 
 [[package]]
-name = "sitter-sub"
-version = "0.1.0"
-dependencies = [
- "cc",
- "tree-sitter",
-]
-
-[[package]]
 name = "tree-sitter"
 version = "0.20.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -56,4 +48,12 @@ checksum = "09b3b781640108d29892e8b9684642d2cda5ea05951fd58f0fea1db9edeb9b71"
 dependencies = [
  "cc",
  "regex",
+]
+
+[[package]]
+name = "treegrep"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "tree-sitter",
 ]

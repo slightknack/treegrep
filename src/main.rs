@@ -1,14 +1,11 @@
 use std::thread::current;
 
-use tree_sitter::{Language, Node, Parser, Query, QueryCursor, TreeCursor};
+use tree_sitter::{
+    Language, Node, Parser, Query, QueryCursor, QueryMatch, Tree, TreeCursor,
+};
 
 extern "C" {
     fn tree_sitter_python() -> Language;
-}
-
-struct Sub {
-    pat: Query,
-    exp: Query,
 }
 
 const SUB_CAPTURE: &str = "sub"; // think @sub
@@ -18,110 +15,183 @@ const SOURCE_CODE: &str = "x = 1 + 0";
 const QUERY: &str = "(binary_operator (integer) @a (integer) @b) @sub";
 const SUBST: &str = "7 + at_a + 1 - at_b + 7";
 
-fn main() {
-    let mut parser = Parser::new();
-    let language = unsafe { tree_sitter_python() };
-    parser.set_language(language).unwrap();
+pub struct Engine {
+    pub language: Language,
+    pub parser: Parser,
+    pub prefix: String,
+    pub hole_kind: String,
+}
 
-    let source_code = SOURCE_CODE;
-    let tree = parser.parse(source_code, None).unwrap();
-    let node = tree.root_node();
+impl Engine {
+    pub fn new_python() -> Engine {
+        let mut parser = Parser::new();
+        let language = unsafe { tree_sitter_python() };
+        parser
+            .set_language(language)
+            .expect("Could not set the language to python");
 
-    dbg!(tree.root_node().to_sexp());
-    let source_query = QUERY;
-    let query = Query::new(language, source_query).unwrap();
-    let sub_index = query
-        .capture_index_for_name(SUB_CAPTURE)
-        .expect("you must use an sub pattern to indicate which part of the AST to replace!");
-
-    let exp_source_code = SUBST;
-    let exp_tree = parser.parse(exp_source_code, None).unwrap();
-
-    let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, node, source_code.as_bytes());
-    let first = matches.next().unwrap();
-    let captures = first.captures;
-    dbg!(captures);
-
-    // Traverse the tree. would use recursion but lifetimes haha
-    let mut exp_cursor = exp_tree.walk();
-    let mut ascending = false;
-    let mut edited_source = String::new();
-    let mut last_modified = 0;
-    loop {
-        if ascending {
-            if exp_cursor.goto_next_sibling() {
-                ascending = false;
-            } else if !exp_cursor.goto_parent() {
-                break;
-            }
-        } else {
-            // vvv what we do is here
-
-            let current_node = exp_cursor.node();
-            let kind = dbg!(current_node.kind());
-            if kind == SUB_KIND {
-                let range = dbg!(current_node.range());
-                let iden_name = dbg!(&exp_source_code[range.start_byte..range.end_byte]);
-                // we substitute the matching ast from the query
-                if iden_name.starts_with(PREFIX) {
-                    edited_source.push_str(&exp_source_code[last_modified..range.start_byte]);
-                    last_modified = range.end_byte;
-                    dbg!(&edited_source);
-
-                    let capture_name = &iden_name[PREFIX.len()..];
-                    dbg!(capture_name);
-
-                    let capture_index = query
-                        .capture_index_for_name(capture_name)
-                        .expect("unknown capture group");
-                    dbg!(capture_index);
-
-                    let mut nodes = first.nodes_for_capture_index(capture_index);
-                    let capture_sub = nodes.next().unwrap();
-                    dbg!(capture_sub);
-                    let original_range = capture_sub.byte_range();
-                    let source_fragment = &source_code[original_range.start..original_range.end];
-                    dbg!(source_fragment);
-                    edited_source.push_str(&source_fragment);
-                }
-            }
-
-            // ^^^ too far!
-            if !exp_cursor.goto_first_child() {
-                ascending = true;
-            }
+        Engine {
+            language,
+            parser,
+            prefix: "at_".into(),
+            hole_kind: "identifier".into(),
         }
     }
 
-    edited_source.push_str(&exp_source_code[last_modified..]);
+    fn build_query(&self, find: &str) -> (Query, u32) {
+        let query =
+            Query::new(self.language, find).expect("Could not built query");
+        let sub_index = query
+            .capture_index_for_name(SUB_CAPTURE)
+            .expect("You must use an sub pattern to indicate which part of the AST to replace!");
+        (query, sub_index)
+    }
 
-    let location = first.nodes_for_capture_index(sub_index).next().unwrap();
-    dbg!(location.to_sexp());
-    let location_range = location.range();
-    let location_contents = &source_code[location_range.start_byte..location_range.end_byte];
-    let mut spliced_source = String::new();
-    spliced_source.push_str(&source_code[0..location_range.start_byte]);
-    spliced_source.push_str(&edited_source);
-    spliced_source.push_str(&source_code[location_range.end_byte..]);
+    fn parse(&mut self, source: &str) -> Tree {
+        self.parser
+            .parse(source, None)
+            .expect("Could not parse source file")
+    }
 
-    println!("\nDONE!\n");
-    println!("given the following source code:\n{}\n", source_code);
-    println!("I matched the following query:\n{}\n", source_query);
-    println!(
-        "and then used the following substitution:\n{}\n",
-        exp_source_code
-    );
-    println!(
-        "to produce the following spliced fragment:\n{}\n",
-        edited_source
-    );
-    println!(
-        "which (via @{}) corresponds to the following location in the source code:\n{}\n",
-        SUB_CAPTURE, location_contents
-    );
-    println!(
-        "using this information, I was able to reconstruct the source with the edit applied:\n{}\n",
-        spliced_source
-    )
+    fn new_sub(&mut self, find: String, replace_source: String) -> Sub {
+        let (find, sub_index) = self.build_query(&find);
+        let replace = self.parse(&replace_source);
+
+        Sub {
+            find,
+            replace,
+            replace_source,
+            sub_index,
+        }
+    }
+}
+
+pub struct Sub {
+    find: Query,
+    replace: Tree,
+    replace_source: String,
+    sub_index: u32,
+}
+
+impl Sub {
+    fn expand_match(
+        &self,
+        engine: &Engine,
+        given_match: QueryMatch,
+        source: &str,
+        new_source: &mut String,
+    ) {
+        // Traverse the tree. would use recursion but lifetimes haha
+        let mut cursor = self.replace.walk();
+        let mut ascending = false;
+        let mut last_modified = 0;
+
+        loop {
+            if ascending {
+                if cursor.goto_next_sibling() {
+                    ascending = false;
+                } else if !cursor.goto_parent() {
+                    break;
+                }
+            } else {
+                // vvv what we do is here
+
+                let current_node = cursor.node();
+                let kind = dbg!(current_node.kind());
+                if kind == engine.hole_kind {
+                    let range = dbg!(current_node.range());
+                    let iden_name = dbg!(
+                        &self.replace_source[range.start_byte..range.end_byte]
+                    );
+                    // we substitute the matching ast from the query
+                    if iden_name.starts_with(&engine.prefix) {
+                        new_source.push_str(
+                            &self.replace_source
+                                [last_modified..range.start_byte],
+                        );
+                        last_modified = range.end_byte;
+                        dbg!(&new_source);
+
+                        let capture_name = &iden_name[engine.prefix.len()..];
+                        dbg!(capture_name);
+
+                        let capture_index = self
+                            .find
+                            .capture_index_for_name(capture_name)
+                            .expect("unknown capture group");
+                        dbg!(capture_index);
+
+                        let mut nodes =
+                            given_match.nodes_for_capture_index(capture_index);
+                        let capture_sub = nodes.next().unwrap();
+                        dbg!(capture_sub);
+                        let original_range = capture_sub.byte_range();
+                        let source_fragment =
+                            &source[original_range.start..original_range.end];
+                        dbg!(source_fragment);
+                        new_source.push_str(&source_fragment);
+                    }
+                }
+
+                // ^^^ too far!
+                if !cursor.goto_first_child() {
+                    ascending = true;
+                }
+            }
+        }
+
+        new_source.push_str(&self.replace_source[last_modified..]);
+    }
+
+    fn expand_first_match(&self, engine: &mut Engine, source: &str) -> String {
+        // parse the source file we are given
+        let source_tree = engine.parse(source);
+
+        // apply the query to the parsed source file, and grab the first result
+        let mut query_cursor = QueryCursor::new();
+        let mut query_matches = query_cursor.matches(
+            &self.find,
+            source_tree.root_node(),
+            source.as_bytes(),
+        );
+        let first_match = query_matches.next().unwrap();
+
+        // find the branch of the AST we are substituting
+        let branch = first_match
+            .nodes_for_capture_index(self.sub_index)
+            .next()
+            .unwrap();
+
+        // incrementally build up a new source file
+        // push all the code up to the first match
+        // walk the replace tree, and substitute items from the query
+        // push the rest of the source code
+        let mut new_source = String::new();
+        let branch_range = branch.range();
+        new_source.push_str(&source[0..branch_range.start_byte]);
+        self.expand_match(engine, first_match, source, &mut new_source);
+        new_source.push_str(&source[branch_range.end_byte..]);
+
+        // all done!
+        return new_source;
+    }
+}
+
+pub fn print_thought(message: &str, item: &impl std::fmt::Display) {
+    println!("{}:\n{}\n", message, item);
+}
+
+fn main() {
+    let mut engine = Engine::new_python();
+    let sub = engine.new_sub(QUERY.into(), SUBST.into());
+    let new_source = sub.expand_first_match(&mut engine, SOURCE_CODE);
+    println!("{}", new_source);
+
+    // print_thought("given the following source code", source_code)    ;
+    // print_thought("I searched for the following query", source_query)    ;
+    // print_thought("This returned the following branch of the AST", location_contents) ;
+    // print_thought("Using the following replacement template", self.replace_source)    ;
+    // print_thought("I spliced in the captured patterns from the AST",     source_code)  ;
+    // print_thought("Applying this replacement, the new file is", source_code)    ;
+    // print_thought("Applying this replacement, the new source code is", new_source)   ;
 }

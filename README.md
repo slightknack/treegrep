@@ -1,6 +1,6 @@
 # treegrep
 
-Prompted by @siraben, I wrote a little tool that allows one to do semantic find and replace on a file. It's nothing more than a little demo for now (and the code is a bit of a mess[^1] as I wrote it in under an hour), but I hope you'll find it interesting.
+Prompted by @siraben, I wrote a little tool that allows one to do semantic find and replace on a file. It's nothing more than a little demo for now (and the code is a bit of a mess as I wrote it in under an hour[^1]), but I hope you'll find it interesting.
 
 [^1]: Well, I went back and cleaned it up a bit so it's at least presentable now, haha.
 

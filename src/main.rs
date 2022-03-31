@@ -111,10 +111,6 @@ impl Sub {
                         &self.replace_source,
                     );
 
-                    let range = current_node.range();
-                    let iden_name =
-                        &self.replace_source[range.start_byte..range.end_byte];
-
                     // we substitute the matching ast from the query
                     if iden_name.starts_with(&engine.prefix) {
                         new_source.push_str(

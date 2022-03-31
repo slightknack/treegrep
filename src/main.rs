@@ -1,5 +1,3 @@
-use std::thread::current;
-
 use tree_sitter::{
     Language, Node, Parser, Query, QueryCursor, QueryMatch, Range, Tree,
     TreeCursor,
@@ -8,13 +6,6 @@ use tree_sitter::{
 extern "C" {
     fn tree_sitter_python() -> Language;
 }
-
-const SUB_CAPTURE: &str = "sub"; // think @sub
-const PREFIX: &str = "at_";
-const SUB_KIND: &str = "identifier";
-const SOURCE_CODE: &str = "x = 1 + 0";
-const QUERY: &str = "(binary_operator (integer) @a (integer) @b) @sub";
-const SUBST: &str = "7 + at_a + 1 - at_b + 7";
 
 pub struct Engine {
     pub language: Language,
@@ -43,7 +34,7 @@ impl Engine {
         let query =
             Query::new(self.language, find).expect("Could not built query");
         let sub_index = query
-            .capture_index_for_name(SUB_CAPTURE)
+            .capture_index_for_name("sub")
             .expect("You must use an sub pattern to indicate which part of the AST to replace!");
         (query, sub_index)
     }
@@ -187,8 +178,11 @@ pub fn print_thought(message: &str, item: &impl std::fmt::Display) {
 
 fn main() {
     let mut engine = Engine::new_python();
-    let sub = engine.new_sub(QUERY.into(), SUBST.into());
-    let new_source = sub.expand_first_match(&mut engine, SOURCE_CODE);
+    let sub = engine.new_sub(
+        "(binary_operator (integer) @a (integer) @b) @sub".into(),
+        "7 + at_a + 1 - at_b + 7".into(),
+    );
+    let new_source = sub.expand_first_match(&mut engine, "x = 1 + 0\ny = True");
     println!("{}", new_source);
 
     // print_thought("given the following source code", source_code)    ;

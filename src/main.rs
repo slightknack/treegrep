@@ -8,10 +8,10 @@ extern "C" {
 }
 
 pub struct Engine {
-    pub language: Language,
-    pub parser: Parser,
-    pub prefix: String,
-    pub hole_kind: String,
+    language: Language,
+    parser: Parser,
+    prefix: String,
+    hole_kind: String,
 }
 
 impl Engine {
@@ -45,7 +45,7 @@ impl Engine {
             .expect("Could not parse source file")
     }
 
-    fn new_sub(&mut self, find: String, replace_source: String) -> Sub {
+    pub fn new_sub(&mut self, find: String, replace_source: String) -> Sub {
         let (find, sub_index) = self.build_query(&find);
         let replace = self.parse(&replace_source);
 
@@ -138,7 +138,11 @@ impl Sub {
         new_source.push_str(&self.replace_source[last_modified..]);
     }
 
-    fn expand_first_match(&self, engine: &mut Engine, source: &str) -> String {
+    pub fn expand_first_match(
+        &self,
+        engine: &mut Engine,
+        source: &str,
+    ) -> (String, String) {
         // parse the source file we are given
         let source_tree = engine.parse(source);
 
@@ -168,7 +172,10 @@ impl Sub {
         new_source.push_str(&source[branch_range.end_byte..]);
 
         // all done!
-        return new_source;
+        return (
+            new_source,
+            Self::node_contents(&branch, source).1.to_string(),
+        );
     }
 }
 
@@ -177,19 +184,27 @@ pub fn print_thought(message: &str, item: &impl std::fmt::Display) {
 }
 
 fn main() {
-    let mut engine = Engine::new_python();
-    let sub = engine.new_sub(
-        "(binary_operator (integer) @a (integer) @b) @sub".into(),
-        "7 + at_a + 1 - at_b + 7".into(),
-    );
-    let new_source = sub.expand_first_match(&mut engine, "x = 1 + 0\ny = True");
-    println!("{}", new_source);
+    // just mess around with these and recompile for now
+    // I'll add a TUI or something *eventually*
+    let find = "(binary_operator (integer) @a (integer) @b) @sub";
+    let replace = "at_b + at_a";
+    let source = "x = 1 + 0\ny = True";
 
-    // print_thought("given the following source code", source_code)    ;
-    // print_thought("I searched for the following query", source_query)    ;
-    // print_thought("This returned the following branch of the AST", location_contents) ;
-    // print_thought("Using the following replacement template", self.replace_source)    ;
-    // print_thought("I spliced in the captured patterns from the AST",     source_code)  ;
-    // print_thought("Applying this replacement, the new file is", source_code)    ;
-    // print_thought("Applying this replacement, the new source code is", new_source)   ;
+    let mut engine = Engine::new_python();
+    let sub = engine.new_sub(find.to_string(), replace.to_string());
+    let (new_source, branch) = sub.expand_first_match(&mut engine, source);
+
+    println!("\nDONE!\n");
+    print_thought("given the following source code", &source);
+    print_thought("I searched for the following tree-sitter query", &find);
+    print_thought("This returned the following branch of the AST", &branch);
+    print_thought("Using the following replacement template", &replace);
+    // print_thought(
+    //     "I spliced in the captured patterns from the AST",
+    //     source_code,
+    // );
+    print_thought(
+        "I spliced in the captured AST patterns to produce",
+        &new_source,
+    );
 }

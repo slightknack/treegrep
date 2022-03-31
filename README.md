@@ -1,6 +1,8 @@
 # treegrep
 
-Prompted by @siraben, I wrote a little tool that allows one to do semantic find and replace on a file. It's nothing more than a little demo for now (and the code is a bit of a mess as I wrote it in under an hour), but I hope you'll find it interesting.
+Prompted by @siraben, I wrote a little tool that allows one to do semantic find and replace on a file. It's nothing more than a little demo for now (and the code is a bit of a mess[^1] as I wrote it in under an hour), but I hope you'll find it interesting.
+
+[^1]: Well, I went back and cleaned it up a bit so it's at least presentable now, haha.
 
 Make sure to clone recursively!
 
@@ -31,6 +33,8 @@ x = 2 + 1
 y = True
 ```
 
-This find-and-replace pattern swaps around the arguments to a binary addition operation.
+This find-and-replace pattern swaps around the arguments to a binary addition operation. More complex queries are possible; you could in theory use this tool to automatically find and apply simple lints to a group of source files.
+
+Feel free to fork it and add functionality!
 
 Everything is in `src/main.rs`. Happy hacking!

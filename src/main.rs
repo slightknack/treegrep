@@ -1,7 +1,8 @@
 use std::thread::current;
 
 use tree_sitter::{
-    Language, Node, Parser, Query, QueryCursor, QueryMatch, Tree, TreeCursor,
+    Language, Node, Parser, Query, QueryCursor, QueryMatch, Range, Tree,
+    TreeCursor,
 };
 
 extern "C" {
@@ -74,6 +75,12 @@ pub struct Sub {
 }
 
 impl Sub {
+    fn node_contents<'a>(node: &Node, source: &'a str) -> (Range, &'a str) {
+        let range = node.range();
+        let iden_name = &source[range.start_byte..range.end_byte];
+        (range, iden_name)
+    }
+
     fn expand_match(
         &self,
         engine: &Engine,
@@ -97,39 +104,40 @@ impl Sub {
                 // vvv what we do is here
 
                 let current_node = cursor.node();
-                let kind = dbg!(current_node.kind());
+                let kind = current_node.kind();
                 if kind == engine.hole_kind {
-                    let range = dbg!(current_node.range());
-                    let iden_name = dbg!(
-                        &self.replace_source[range.start_byte..range.end_byte]
+                    let (range, iden_name) = Self::node_contents(
+                        &current_node,
+                        &self.replace_source,
                     );
+
+                    let range = current_node.range();
+                    let iden_name =
+                        &self.replace_source[range.start_byte..range.end_byte];
+
                     // we substitute the matching ast from the query
                     if iden_name.starts_with(&engine.prefix) {
                         new_source.push_str(
                             &self.replace_source
                                 [last_modified..range.start_byte],
                         );
-                        last_modified = range.end_byte;
-                        dbg!(&new_source);
 
                         let capture_name = &iden_name[engine.prefix.len()..];
-                        dbg!(capture_name);
-
                         let capture_index = self
                             .find
                             .capture_index_for_name(capture_name)
                             .expect("unknown capture group");
-                        dbg!(capture_index);
 
-                        let mut nodes =
-                            given_match.nodes_for_capture_index(capture_index);
-                        let capture_sub = nodes.next().unwrap();
-                        dbg!(capture_sub);
-                        let original_range = capture_sub.byte_range();
-                        let source_fragment =
-                            &source[original_range.start..original_range.end];
-                        dbg!(source_fragment);
+                        let capture_sub = given_match
+                            .nodes_for_capture_index(capture_index)
+                            .next()
+                            .unwrap();
+
+                        let (_, source_fragment) =
+                            Self::node_contents(&capture_sub, source);
+
                         new_source.push_str(&source_fragment);
+                        last_modified = range.end_byte;
                     }
                 }
 
